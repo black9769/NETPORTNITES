@@ -4,6 +4,7 @@ import json
 import requests
 from datetime import datetime
 from PyQt5.QtCore import QThread, pyqtSignal
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # well_known.json 파일 로드 (같은 경로에 위치시킬 것)
 with open("well_known.json", "r", encoding="utf-8") as f:
@@ -35,20 +36,36 @@ class ScannerThread(QThread):
 
         self.log_signal.emit("[완료] 스캔 및 NVD 조회 완료.")
 
+    def scan_port(self, port):
+        """단일 포트 스캔 함수 (병렬용)"""
+        start = datetime.now()
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(0.5)
+                if s.connect_ex(("127.0.0.1", port)) == 0:
+                    service = WELLKNOWN_PORTS.get(str(port), "unknown")
+                    end = datetime.now()
+                    self.log_signal.emit(
+                        f"{end.strftime('%H:%M:%S')} ✅ 열린 포트 발견: {port} ({service}) - { (end-start).total_seconds():.2f}s"
+                    )
+                    return {"port": port, "service": service}
+        except Exception as e:
+            self.log_signal.emit(f"{datetime.now().strftime('%H:%M:%S')} ⚠ 포트 {port} 스캔 에러: {e}")
+        return None
+
     def scan_ports(self):
+        self.log_signal.emit(f"{datetime.now().strftime('%H:%M:%S')} 🔍 포트 스캔 시작 (1~65535)...")
         open_ports = []
-        self.log_signal.emit("🔍 포트 스캔 시작 (1~65535)...")
-        for port in range(1, 65536):
-            try:
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    s.settimeout(1)
-                    if s.connect_ex(("127.0.0.1", port)) == 0:
-                        service = WELLKNOWN_PORTS.get(str(port), "unknown")
-                        open_ports.append({"port": port, "service": service})
-                        self.log_signal.emit(f"✅ 열린 포트 발견: {port} ({service})")
-            except Exception as e:
-                self.log_signal.emit(f"⚠ 포트 스캔 에러: {port} - {e}")
-        self.log_signal.emit(f"🔎 총 열린 포트 수: {len(open_ports)}")
+
+        # ThreadPoolExecutor로 병렬 스캔
+        with ThreadPoolExecutor(max_workers=100) as executor:
+            future_to_port = {executor.submit(self.scan_port, port): port for port in range(1, 65535)}
+            for future in as_completed(future_to_port):
+                result = future.result()
+                if result:
+                    open_ports.append(result)
+
+        self.log_signal.emit(f"{datetime.now().strftime('%H:%M:%S')} 🔎 총 열린 포트 수: {len(open_ports)}")
         return open_ports
 
     def search_nvd(self, port, service):
