@@ -9,7 +9,7 @@ from PyQt5.QtCore import QThread, pyqtSignal
 with open("well_known.json", "r", encoding="utf-8") as f:
     WELLKNOWN_PORTS = json.load(f)
 
-NVD_API_KEY = ""  # 필요 시 API키 입력
+NVD_API_KEY = "f12241dd-84c8-4490-818c-11d5c2d55fa9"  # 필요 시 API키 입력
 
 
 class ScannerThread(QThread):
